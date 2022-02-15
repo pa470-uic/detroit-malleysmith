@@ -189,10 +189,9 @@ foreclosures2 %>%
 
 
 forclosure_mod1 <- lm(foreclosure ~ year, data = foreclosures2)
+summary(forclosure_mod1)
 
 ```
-
-
 
 
 
