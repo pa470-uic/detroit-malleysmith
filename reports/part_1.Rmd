@@ -1,6 +1,6 @@
 ---
 title: "Part 1"
-author: "YOUR NAME"
+author: Malley Smith 
 output: 
   html_document:
     code_folding: hide
@@ -12,6 +12,9 @@ output:
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
 library(tidyverse)
 library(lubridate)
+library(RSQLite)
+library(DBI)
+
 
 ```
 
@@ -20,21 +23,178 @@ Template file. Code will be included in folded blocks in the output to facilitat
 ```{r}
 #example connection to database. note that you have to download the database from onedrive
 
-con <- DBI::dbConnect(RSQLite::SQLite(), "database/detroit.sqlite")
+con <- DBI::dbConnect(RSQLite::SQLite(), "/Users/apple/Library/CloudStorage/OneDrive-UniversityofIllinoisatChicago/GitHub/database/detroit.sqlite")
+
 
 # sales tbl
 
 dplyr::tbl(con, 'sales')
 
 # convert to tibble
-#dplyr::tbl(con, 'sales') %>% dplyr::collect()
+dplyr::tbl(con, 'sales') %>% dplyr::collect()
 
 # sql query
 
 dplyr::tbl(con, 'sales') %>% count(year(sale_date))
 
-#dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>% show_query()
+# dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>% show_query()
 
 ```
+
+Section A: Exploratory Data Analysis
+
+
+
+```{r}
+# Getting familiar with the database 
+# src_dbi(con) #tbls: assessments, blight, foreclosures, parcels, parcels_historic, sales
+
+
+# Creating individual tables 
+###########################
+assessments <- tbl(con, "assessments")
+head(assessments, n = 20)
+
+blight <- tbl(con, "blight")
+head(blight, n = 10)
+
+foreclosures <- tbl(con, "foreclosures")
+head(foreclosures, n = 10)
+
+
+parcels <- tbl(con, "parcels")
+head(parcels)
+
+parcels_historic <- tbl(con, "parcels_historic")
+
+sales <- tbl(con, "sales")
+head(sales)
+
+##########################
+
+dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>% arrange(desc(n)) 
+# 2014 has largest number os sales 
+
+
+sales %>% 
+  group_by(year(sale_date)) %>%
+  summarise(mean_sale_price = mean(sale_price, na.rm = TRUE), median = median(sale_price, na.rm = TRUE)) %>%
+  arrange(desc(mean_sale_price))
+
+# 2020 has the highest average sale price
+
+
+library(lubridate)  
+
+
+# Joining assessment and sales tables, joinging by parcel number 
+sales_joined <- sales %>%
+  left_join(assessments, by=c('parcel_num' = 'PARCELNO'))
+  
+
+```
+
+
+Data Quality 
+# Foreclosures is a wide data set where NA means the property is not foreclosed and 1 = foreclosed. 
+
+
+```{r}
+# Overview
+
+# The thought here is that the assessed value is more than what the property sells for. So the sale price is subtracted from the assessed value 
+
+sales_joined2 <- sales_joined %>% 
+  mutate(difference = ASSESSEDVALUE - sale_price)
+
+sales_joined2 %>% 
+  group_by(year) %>%
+  summarise(mean_difference = mean(difference, na.rm = TRUE), median_difference = median(difference, na.rm = TRUE), min = min(difference, na.rm = TRUE), max = max(difference, na.rm = TRUE)) %>%
+  arrange(desc(difference))
+
+  
+# So far 2022 has the largest positive mean difference, meaning that properties on average are selling for less than their assessed value. Because there is less than two months worth of data for 2022, it will not be a helpful comparison. This may not be a good year to keep if we want to compare full years. 2011 is the second largest positive mean difference. 
+
+
+# 2017 has the largest negative mean difference. Meaning on average properties were sold above their assessed value. 
+
+
+```
+
+When comparing this brief analysis of Detroit's Property Assessment Data, the first impression of the data when only looking at the means is that properties generally are being assessed at a lower value than their sale price. 
+
+However, if we look at the median, minimum and maximum. We see that medians are all positive. It seems like there are still a good amount of properties that have larger assessed values compared to their sale price. What this means is that t
+
+Section B: Sales Ratio Study 
+
+```{r}
+devtools::install_github("cmf-uchicago/cmfproperty")
+library(cmfproperty)
+
+sales_joined3 <- sales_joined %>% 
+  select(parcel_num, year, sale_price, ASSESSEDVALUE)
+
+# df <- cmfproperty::sales_joined3
+
+# Not sure how exactly I am supposed to use this package. I thought the line above would create my object in cmfproperty but instead it does not recognize the object sales_joined3. 
+
+sales_ratio <- sales_joined3 %>%
+  mutate(sales_ratio = ASSESSEDVALUE/sale_price)
+
+sales_ratio %>% 
+  group_by(year) %>%
+  summarise(mean_sr = mean(sales_ratio), median_sr = median(sales_ratio))
+
+```
+
+Section C: Property Sales Simple Regression 
+
+```{r}
+ 
+sales_mod1 <- lm(sale_price ~ ASSESSEDVALUE, data = sales_joined)
+summary(sales_mod1)
+# plot(sales_mod1)
+
+
+sales_mod2 <- lm(sale_price ~ ASSESSEDVALUE*year, data = sales_joined)
+summary(sales_mod2)
+
+
+
+sales_mod3 <- lm(ASSESSEDVALUE ~ year + sale_price, data = sales_joined)
+summary(sales_mod3)
+  
+
+
+```
+
+
+
+Section D: Foreclosures Simple Regression 
+
+```{r}
+
+foreclosures2 <- foreclosures %>%
+  pivot_longer(!c(prop_addr, prop_parcelnum),
+             names_to = "year",
+             values_to = "foreclosure")
+
+foreclosures2 %>%
+  group_by(year) %>%
+  summarise(n_foreclosures = count(foreclosure)) %>%
+  arrange(desc(n_foreclosures))
+# 2015 has the most foreclosures
+
+
+
+
+forclosure_mod1 <- lm(foreclosure ~ year, data = foreclosures2)
+summary(forclosure_mod1)
+
+```
+
+
+
+
 
 
